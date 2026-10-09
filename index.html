@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>MindAR 3Dハウス表示（トラブル診断機能付き）</title>
+  <title>MindAR 3Dモデル表示（家のGLB & トラブル診断機能付き）</title>
   <style>
     body {
       margin: 0;
@@ -11,20 +11,22 @@
       overflow: hidden;
       font-family: sans-serif;
     }
-    /* トラブル診断オーバーレイパネル */
+
+    /* トラブル診断・ステータスオーバーレイ */
     #info-overlay {
       position: absolute;
       top: 12px;
       left: 12px;
       background: rgba(0, 0, 0, 0.85);
       color: #ffffff;
-      padding: 16px;
+      padding: 14px 18px;
       border-radius: 8px;
       max-width: 380px;
       font-size: 13px;
       line-height: 1.6;
       z-index: 999;
       box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+      pointer-events: none;
     }
     #status {
       font-weight: bold;
@@ -41,47 +43,41 @@
     }
   </style>
 
-  <!-- A-Frame ライブラリ -->
+  <!-- A-Frame & MindAR ライブラリ -->
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
-  <!-- MindAR Image Tracking ライブラリ -->
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
 </head>
 <body>
 
   <!-- ステータス・トラブル診断パネル -->
   <div id="info-overlay">
-    <div><strong>状態:</strong> <span id="status">準備中...</span></div>
-    <div id="details" style="margin-top: 8px;">3Dモデル (house.glb) の読み込みを開始します。</div>
+    <div><strong>状態:</strong> <span id="status">カメラ起動中...</span></div>
+    <div id="details" style="margin-top: 6px;"><code>house.glb</code> と <code>targets.mind</code> を読み込んでいます。</div>
   </div>
 
-  <!-- ARシーンの設定 -->
   <a-scene 
     mindar-image="imageTargetSrc: ./targets.mind;" 
     color-space="sRGB" 
-    renderer="colorManagement: true, physicallyCorrectLights" 
+    renderer="colorManagement: true, physicallyCorrectLights: true" 
     vr-mode-ui="enabled: false" 
     device-orientation-permission-ui="enabled: false">
 
-    <!-- アセット（3Dモデル）の読み込み定義 -->
+    <!-- 3Dアセットの読み込み定義 -->
     <a-assets>
-      <a-asset-item id="houseModel" src="./house.glb"></a-asset-item>
+      <a-asset-item id="houseModel" src="house.glb"></a-asset-item>
     </a-assets>
 
     <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
-    <!-- マーカー（targetIndex: 0）を認識したときに表示する3Dモデル -->
-    <a-entity mindar-image-target="targetIndex: 0">
-      <!-- 
-        scale: 大きさ（モデルが大きすぎる/小さすぎる場合は 0.05 や 0.2 などに変更してください）
-        position: 位置（X Y Z）
-        rotation: 回転（X Y Z）
-      -->
+    <!-- マーカー認識時のエンティティ (targetIndex: 0) -->
+    <a-entity id="targetEntity" mindar-image-target="targetIndex: 0">
+      <!-- 青い四角の代わりに「家の3Dモデル」を配置 -->
       <a-gltf-model 
-        id="houseEntity"
+        id="houseMesh" 
         src="#houseModel" 
         position="0 0 0" 
-        scale="0.1 0.1 0.1" 
-        rotation="0 0 0">
+        scale="0.25 0.25 0.25" 
+        rotation="90 0 0">
       </a-gltf-model>
     </a-entity>
 
@@ -90,49 +86,55 @@
   <script>
     const statusEl = document.getElementById('status');
     const detailsEl = document.getElementById('details');
-    const MODEL_PATH = 'house.glb';
 
-    // 1. ローカルファイル直接開き (file://) の検知
+    // 1. file:// 直開きセキュリティ制限の検知
     if (window.location.protocol === 'file:') {
-      statusEl.textContent = 'エラー';
+      statusEl.textContent = 'エラー: file:// 直開き';
       statusEl.className = 'error';
       detailsEl.innerHTML = `
         <strong style="color:#ff6b6b;">【原因: ローカルファイル直接開き】</strong><br>
-        ブラウザでHTMLファイルを直接開いているため、セキュリティ制限により3Dモデルやカメラの読み込みがブロックされています。<br><br>
-        <strong>対処法:</strong><br>
-        VS Codeの「Live Server」を使用するか、GitHub Pagesにアップロードして開いてください。
+        ブラウザで直接HTMLファイルを開いているため、セキュリティ制限によりカメラおよび <code>house.glb</code> の読み込みがブロックされています。<br><br>
+        <strong>対処法:</strong> Live Server または GitHub Pages 経由でアクセスしてください。
       `;
-    } else {
-      statusEl.textContent = '読み込み中...';
+    }
 
-      const houseEntity = document.getElementById('houseEntity');
+    // 2. 3Dモデル(house.glb)の読み込み状態チェック
+    const houseAsset = document.querySelector('#houseModel');
 
-      // 2. 3Dモデル読み込み成功時の処理
-      houseEntity.addEventListener('model-loaded', () => {
-        statusEl.textContent = '表示準備完了！';
+    houseAsset.addEventListener('loaded', () => {
+      if (window.location.protocol !== 'file:') {
+        statusEl.textContent = '準備完了！マーカー検索中...';
         statusEl.className = 'success';
         detailsEl.innerHTML = `
-          ファイル名: <code>${MODEL_PATH}</code><br>
-          3Dモデルの読み込みに成功しました。<br><br>
-          ※カメラにマーカー画像をかざすと家の3Dモデルが表示されます！
+          <code>house.glb</code> の読み込みに成功しました！<br>
+          カメラにマーカー画像（<code>targets.mind</code>）をかざしてください。
         `;
-      });
+      }
+    });
 
-      // 3. 3Dモデル読み込み失敗（ファイル不在など）の処理
-      houseEntity.addEventListener('model-error', () => {
-        statusEl.textContent = '読み込み失敗';
-        statusEl.className = 'error';
-        detailsEl.innerHTML = `
-          <strong style="color:#ff6b6b;">【原因: 3Dモデルが見つかりません】</strong><br>
-          指定された <code>${MODEL_PATH}</code> の読み込みに失敗しました。<br><br>
-          <strong>確認事項:</strong>
-          <ul style="margin: 4px 0; padding-left: 20px;">
-            <li><code>index.html</code> と同じフォルダに <code>${MODEL_PATH}</code> が入っているか</li>
-            <li>ファイル名が <code>house.glb</code>（小文字）になっているか</li>
-          </ul>
-        `;
-      });
-    }
+    houseAsset.addEventListener('error', () => {
+      statusEl.textContent = '3Dモデル読込失敗';
+      statusEl.className = 'error';
+      detailsEl.innerHTML = `
+        <strong style="color:#ff6b6b;">【<code>house.glb</code> が見つかりません】</strong><br>
+        <code>index.html</code> と同じフォルダに <code>house.glb</code> があるか、ファイル名が正しいか確認してください。
+      `;
+    });
+
+    // 3. マーカー認識（targetFound / targetLost）のイベント監視
+    const targetEntity = document.querySelector('#targetEntity');
+
+    targetEntity.addEventListener('targetFound', () => {
+      statusEl.textContent = 'マーカー認識成功！';
+      statusEl.className = 'success';
+      detailsEl.innerHTML = '画面上に家の3Dモデルを表示中！';
+    });
+
+    targetEntity.addEventListener('targetLost', () => {
+      statusEl.textContent = 'マーカー検索中...';
+      statusEl.className = '';
+      detailsEl.innerHTML = 'カメラにマーカー画像をかざしてください。';
+    });
   </script>
 </body>
 </html>
