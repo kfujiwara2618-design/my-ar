@@ -3,39 +3,57 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>MindAR 複数マーカー ＆ タッチ操作</title>
+  <title>MindAR 安定版 - 3Dモデル全方向タッチ操作</title>
   <style>
-    body { margin: 0; padding: 0; overflow: hidden; font-family: sans-serif; }
+    body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      font-family: sans-serif;
+    }
     #info-overlay {
-      position: absolute; top: 12px; left: 12px; background: rgba(0, 0, 0, 0.8);
-      color: #ffffff; padding: 10px 14px; border-radius: 8px; font-size: 12px;
-      z-index: 999; pointer-events: none;
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      background: rgba(0, 0, 0, 0.8);
+      color: #ffffff;
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 12px;
+      z-index: 999;
+      pointer-events: none;
     }
     #status { font-weight: bold; color: #ffd700; }
     .success { color: #51cf66 !important; }
     .error { color: #ff6b6b !important; }
   </style>
+
+  <!-- A-Frame & MindAR (基本構造通り) -->
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
 </head>
 <body>
 
+  <!-- 画面左上の状態確認表示 -->
   <div id="info-overlay">
     <div>状態: <span id="status">準備中...</span></div>
   </div>
 
-  <a-scene mindar-image="imageTargetSrc: ./targets.mind;" vr-mode-ui="enabled: false" device-orientation-permission-ui="enabled: false">
-    
+  <!-- 参考コードと同じシンプルで最も安定した a-scene 構造 -->
+  <a-scene 
+    mindar-image="imageTargetSrc: ./targets.mind;" 
+    vr-mode-ui="enabled: false" 
+    device-orientation-permission-ui="enabled: false">
+
     <a-assets>
-      <!-- 1つ目のモデル -->
       <a-asset-item id="houseModel" src="house.glb"></a-asset-item>
-      <!-- 2つ目のモデルがある場合はここに追加（例: <a-asset-item id="model2" src="model2.glb"></a-asset-item>） -->
     </a-assets>
 
     <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
-    <!-- ■ 1枚目のマーカー (targetIndex: 0) -->
-    <a-entity id="targetEntity0" mindar-image-target="targetIndex: 0">
+    <!-- マーカー認識ターゲット (targetIndex: 0) -->
+    <a-entity id="targetEntity" mindar-image-target="targetIndex: 0">
+      <!-- 家の3Dモデル -->
       <a-gltf-model 
         id="houseMesh" 
         src="#houseModel" 
@@ -45,25 +63,14 @@
       </a-gltf-model>
     </a-entity>
 
-    <!-- ■ 2枚目のマーカー (targetIndex: 1) -->
-    <a-entity id="targetEntity1" mindar-image-target="targetIndex: 1">
-      <!-- ここに2枚目のマーカーで見せたいものを配置 -->
-      <!-- glbファイルを表示したい場合は <a-gltf-model src="#model2" ...> に変更してください -->
-      <a-sphere id="secondMesh" color="red" radius="0.3" position="0 0 0"></a-sphere>
-    </a-entity>
-
   </a-scene>
 
   <script>
     const statusEl = document.getElementById('status');
     const sceneEl = document.querySelector('a-scene');
-    
-    const targetEntity0 = document.querySelector('#targetEntity0');
-    const targetEntity1 = document.querySelector('#targetEntity1');
     const houseMesh = document.querySelector('#houseMesh');
 
-    let activeMesh = null; // 現在操作対象のモデル
-
+    // 1. MindARの起動イベント判定
     sceneEl.addEventListener("arReady", () => {
       statusEl.textContent = "カメラ起動成功！マーカーをかざしてください";
       statusEl.className = "success";
@@ -74,57 +81,74 @@
       statusEl.className = "error";
     });
 
-    // 1枚目マーカー認識
-    targetEntity0.addEventListener('targetFound', () => {
-      statusEl.textContent = 'マーカー1(家) 認識成功！';
+    // 2. マーカー認識・離脱イベント
+    const targetEntity = document.querySelector('#targetEntity');
+    targetEntity.addEventListener('targetFound', () => {
+      statusEl.textContent = '認識成功！(1本指:全方向回転 / 2本指:拡大縮小)';
       statusEl.className = 'success';
-      activeMesh = houseMesh; // 操作対象を家に設定
     });
-    targetEntity0.addEventListener('targetLost', () => { activeMesh = null; statusEl.textContent = '検索中...'; statusEl.className = ''; });
 
-    // 2枚目マーカー認識
-    targetEntity1.addEventListener('targetFound', () => {
-      statusEl.textContent = 'マーカー2 認識成功！';
-      statusEl.className = 'success';
-      // 2つ目のモデル（#secondMesh 等）も回転させたい場合は activeMesh に代入します。
-      // 今回は単純な球体なので、タッチ操作対象から除外（nullのまま）しています。
-      activeMesh = null; 
+    targetEntity.addEventListener('targetLost', () => {
+      statusEl.textContent = 'マーカーを検索中...';
+      statusEl.className = '';
     });
-    targetEntity1.addEventListener('targetLost', () => { statusEl.textContent = '検索中...'; statusEl.className = ''; });
 
-    // --- タッチ操作（縦横全方向スワイプ ＆ ピンチ拡大縮小） ---
-    let startX = null, startY = null;
-    let currentRotX = 0, currentRotY = 0;
-    let initialDistance = null, initialScale = 0.25;
+    // 3. 安全なタッチ操作（縦横全方向スワイプ ＆ ピンチ拡大縮小）
+    let startX = null;
+    let startY = null;
+    let currentRotX = 0;
+    let currentRotY = 0;
+    let initialDistance = null;
+    let initialScale = 0.25;
 
     window.addEventListener('touchstart', (e) => {
-      if (!activeMesh) return;
       if (e.touches.length === 1) {
-        startX = e.touches[0].clientX; startY = e.touches[0].clientY;
+        startX = e.touches[0].clientX;
+        startY = e.touches[0].clientY;
       } else if (e.touches.length === 2) {
-        initialDistance = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
-        const s = activeMesh.getAttribute('scale');
-        if (s) initialScale = s.x;
+        initialDistance = Math.hypot(
+          e.touches[0].clientX - e.touches[1].clientX,
+          e.touches[0].clientY - e.touches[1].clientY
+        );
+        if (houseMesh) {
+          const s = houseMesh.getAttribute('scale');
+          if (s) initialScale = s.x;
+        }
       }
     }, { passive: true });
 
     window.addEventListener('touchmove', (e) => {
-      if (!activeMesh) return;
+      if (!houseMesh) return;
+
       if (e.touches.length === 1 && startX !== null && startY !== null) {
+        // 1本指スワイプ：上下移動でX軸(縦)回転、左右移動でY軸(横)回転
         const deltaX = e.touches[0].clientX - startX;
         const deltaY = e.touches[0].clientY - startY;
-        currentRotY += deltaX * 0.5; currentRotX += deltaY * 0.5;
-        activeMesh.setAttribute('rotation', `${currentRotX} ${currentRotY} 0`);
-        startX = e.touches[0].clientX; startY = e.touches[0].clientY;
+
+        currentRotY += deltaX * 0.5;
+        currentRotX += deltaY * 0.5;
+
+        houseMesh.setAttribute('rotation', `${currentRotX} ${currentRotY} 0`);
+
+        startX = e.touches[0].clientX;
+        startY = e.touches[0].clientY;
       } else if (e.touches.length === 2 && initialDistance !== null && initialDistance > 0) {
-        const currentDistance = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+        // 2本指ピンチ：拡大縮小
+        const currentDistance = Math.hypot(
+          e.touches[0].clientX - e.touches[1].clientX,
+          e.touches[0].clientY - e.touches[1].clientY
+        );
         const factor = currentDistance / initialDistance;
         let newScale = Math.max(0.05, Math.min(2.0, initialScale * factor));
-        activeMesh.setAttribute('scale', `${newScale} ${newScale} ${newScale}`);
+        houseMesh.setAttribute('scale', `${newScale} ${newScale} ${newScale}`);
       }
     }, { passive: true });
 
-    window.addEventListener('touchend', () => { startX = null; startY = null; initialDistance = null; });
+    window.addEventListener('touchend', () => {
+      startX = null;
+      startY = null;
+      initialDistance = null;
+    });
   </script>
 </body>
 </html>
