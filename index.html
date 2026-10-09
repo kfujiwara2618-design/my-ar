@@ -1,39 +1,45 @@
 <!DOCTYPE html>
 <html lang="ja">
-  <head>
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <!-- 3D表示用ライブラリ: A-Frame -->
-    <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
-    <!-- WebAR認識用ライブラリ: MindAR (A-Frame版) -->
-    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
-  </head>
-  <body>
-    <a-scene 
-      mindar-image="imageTargetSrc: ./targets.mind;" 
-      color-space="sRGB" 
-      renderer="colorManagement: true, physicallyCorrectLights" 
-      vr-mode-ui="enabled: false" 
-      device-orientation-permission-ui="enabled: false">
+<head>
+  <meta charset="UTF-8">
+  <title>3Dモデル表示サンプル</title>
+  <!-- A-Frame の読み込み -->
+  <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
+</head>
+<body>
+  <a-scene background="color: #ECECEC">
+    
+    <!-- アセット管理（モデルの事前読み込み） -->
+    <a-assets>
+      <!-- ファイルパスは実際のGLB/glTFファイル名に合わせて変更してください -->
+      <a-asset-item id="my-model" src="house.glb"></a-asset-item>
+    </a-assets>
 
-      <!-- 3Dモデルなどのアセット（素材）を事前に読み込む設定 -->
-      <a-assets>
-        <a-asset-item id="houseModel" src="./house.glb"></a-asset-item>
-      </a-assets>
+    <!-- ライト（照明）の追加 -->
+    <a-light type="ambient" color="#BBB"></a-light>
+    <a-light type="directional" color="#FFF" intensity="0.6" position="-1 2 1"></a-light>
 
-      <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+    <!-- 3Dモデルの配置 -->
+    <!-- 
+      - position: モデルを中心より前方・地面（Z=-8, Y=0）へ移動
+      - scale: 全体サイズを約20%に縮小
+    -->
+    <a-entity 
+      gltf-model="#my-model" 
+      position="0 0 -8" 
+      scale="0.2 0.2 0.2"
+      rotation="0 45 0">
+    </a-entity>
 
-      <!-- マーカー画像を認識した時に表示する要素 -->
-      <a-entity mindar-image-target="targetIndex: 0">
-        <!-- 家の3Dモデルを表示 -->
-        <!-- scale: 大きさ, position: 位置(X Y Z), rotation: 傾き(X Y Z) -->
-        <a-gltf-model 
-          src="#houseModel" 
-          position="0 0 0" 
-          scale="0.5 0.5 0.5"
-          rotation="90 0 0">
-        </a-gltf-model>
-      </a-entity>
+    <!-- 地面（影・位置把握用） -->
+    <a-plane position="0 0 -8" rotation="-90 0 0" width="30" height="30" color="#7BC8A4"></a-plane>
 
-    </a-scene>
-  </body>
+    <!-- カメラ位置の調整 -->
+    <!-- カメラを高さ2m、手前5mに配置してモデル全体が視界に入るように設定 -->
+    <a-entity position="0 2 5">
+      <a-camera look-controls camerawasd-controls></a-camera>
+    </a-entity>
+
+  </a-scene>
+</body>
 </html>
