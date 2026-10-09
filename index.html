@@ -2,44 +2,193 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <title>3Dモデル表示サンプル</title>
-  <!-- A-Frame の読み込み -->
-  <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>3Dモデル表示（トラブル診断機能付き）</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background-color: #1a1a1a;
+      font-family: sans-serif;
+    }
+    #canvas-container {
+      width: 100vw;
+      height: 100vh;
+    }
+    #info-overlay {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      background: rgba(0, 0, 0, 0.85);
+      color: #ffffff;
+      padding: 16px;
+      border-radius: 8px;
+      max-width: 420px;
+      font-size: 13px;
+      line-height: 1.6;
+      z-index: 100;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+    }
+    #status {
+      font-weight: bold;
+      font-size: 14px;
+      color: #ffd700;
+    }
+    .error { color: #ff6b6b !important; }
+    .success { color: #51cf66 !important; }
+    code {
+      background: #333;
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: #61afef;
+    }
+  </style>
+
+  <!-- Three.js の読み込み -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
 </head>
 <body>
-  <a-scene background="color: #ECECEC">
-    
-    <!-- アセット管理（モデルの事前読み込み） -->
-    <a-assets>
-      <!-- ファイルパスは実際のGLB/glTFファイル名に合わせて変更してください -->
-      <a-asset-item id="my-model" src="house.glb"></a-asset-item>
-    </a-assets>
 
-    <!-- ライト（照明）の追加 -->
-    <a-light type="ambient" color="#BBB"></a-light>
-    <a-light type="directional" color="#FFF" intensity="0.6" position="-1 2 1"></a-light>
+  <!-- ステータス・エラー表示パネル -->
+  <div id="info-overlay">
+    <div><strong>状態:</strong> <span id="status">準備中...</span></div>
+    <div id="details" style="margin-top: 8px;">3Dモデルの読み込みを開始します。</div>
+  </div>
 
-    <!-- 3Dモデルの配置 -->
-    <!-- 
-      - position: モデルを中心より前方・地面（Z=-8, Y=0）へ移動
-      - scale: 全体サイズを約20%に縮小
-    -->
-    <a-entity 
-      gltf-model="#my-model" 
-      position="0 0 -8" 
-      scale="0.2 0.2 0.2"
-      rotation="0 45 0">
-    </a-entity>
+  <div id="canvas-container"></div>
 
-    <!-- 地面（影・位置把握用） -->
-    <a-plane position="0 0 -8" rotation="-90 0 0" width="30" height="30" color="#7BC8A4"></a-plane>
+  <script type="module">
+    import * as THREE from 'three';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-    <!-- カメラ位置の調整 -->
-    <!-- カメラを高さ2m、手前5mに配置してモデル全体が視界に入るように設定 -->
-    <a-entity position="0 2 5">
-      <a-camera look-controls camerawasd-controls></a-camera>
-    </a-entity>
+    // =========================================================
+    // ★ 読み込むGLB/glTFのファイル名・パスをここに変更してください
+    // =========================================================
+    const MODEL_PATH = 'house.glb';
 
-  </a-scene>
+    const statusEl = document.getElementById('status');
+    const detailsEl = document.getElementById('details');
+
+    // 1. シーンとレンダラーの初期化
+    const container = document.getElementById('canvas-container');
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x222222);
+
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.01, 2000);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.shadowMap.enabled = true;
+    container.appendChild(renderer.domElement);
+
+    // 2. マウス操作（ドラッグで回転・スクロールで拡大縮小）
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+
+    // 3. 照明・グリッドの配置
+    const ambientLight = new THREE.AmbientLight(0xffffff, 1.5);
+    scene.add(ambientLight);
+
+    const dirLight = new THREE.DirectionalLight(0xffffff, 2.0);
+    dirLight.position.set(10, 20, 15);
+    scene.add(dirLight);
+
+    const gridHelper = new THREE.GridHelper(30, 30, 0x888888, 0x444444);
+    scene.add(gridHelper);
+
+    // 4. モデルの読み込み実行
+    statusEl.textContent = '読み込み中...';
+    const loader = new GLTFLoader();
+
+    loader.load(
+      MODEL_PATH,
+      (gltf) => {
+        const model = gltf.scene;
+        scene.add(model);
+
+        // --- 自動サイズ計測＆カメラ調整 ---
+        const box = new THREE.Box3().setFromObject(model);
+        const size = box.getSize(new THREE.Vector3());
+        const center = box.getCenter(new THREE.Vector3());
+
+        // モデルの中心を原点(0,0,0)に配置
+        model.position.sub(center);
+
+        // モデルの大きさに合わせてカメラ距離を自動調整
+        const maxDim = Math.max(size.x, size.y, size.z);
+        const fov = camera.fov * (Math.PI / 180);
+        let cameraDistance = Math.abs(maxDim / 2 / Math.tan(fov / 2)) * 1.8;
+        if (cameraDistance === 0 || isNaN(cameraDistance)) cameraDistance = 10;
+
+        camera.position.set(cameraDistance * 0.8, cameraDistance * 0.6, cameraDistance);
+        camera.lookAt(0, 0, 0);
+        controls.target.set(0, 0, 0);
+        controls.update();
+
+        statusEl.textContent = '表示成功！';
+        statusEl.className = 'success';
+        detailsEl.innerHTML = `
+          ファイル名: <code>${MODEL_PATH}</code><br>
+          サイズ: 幅${size.x.toFixed(2)}m × 高さ${size.y.toFixed(2)}m × 奥行${size.z.toFixed(2)}m<br><br>
+          ※画面をドラッグすると視点を移動できます。
+        `;
+      },
+      (xhr) => {
+        if (xhr.lengthComputable) {
+          const percent = Math.round((xhr.loaded / xhr.total) * 100);
+          statusEl.textContent = `読み込み中 (${percent}%)`;
+        }
+      },
+      (error) => {
+        console.error('GLTF Load Error:', error);
+        statusEl.textContent = '表示失敗';
+        statusEl.className = 'error';
+
+        // file:// 直開きの検出
+        if (window.location.protocol === 'file:') {
+          detailsEl.innerHTML = `
+            <strong style="color:#ff6b6b;">【原因: ローカルファイル直接開き】</strong><br>
+            ブラウザでHTMLファイルを直接開いているため、セキュリティ制限（CORSエラー）により3Dモデルの読み込みがブロックされています。<br><br>
+            <strong>対処法:</strong><br>
+            VS Codeの拡張機能「Live Server」を使用するか、ターミナルで <code>python -m http.server</code> などのローカルサーバーを起動して開いてください。
+          `;
+        } else {
+          detailsEl.innerHTML = `
+            <strong style="color:#ff6b6b;">【原因: ファイルが見つからないかパスが違います】</strong><br>
+            指定された <code>${MODEL_PATH}</code> が見つかりませんでした。<br><br>
+            <strong>確認事項:</strong>
+            <ul style="margin: 4px 0; padding-left: 20px;">
+              <li><code>index.html</code> と同じフォルダに <code>${MODEL_PATH}</code> が置いてあるか</li>
+              <li>大文字・小文字や拡張子（.glb / .gltf）が合っているか</li>
+            </ul>
+          `;
+        }
+      }
+    );
+
+    // ウィンドウリサイズ対応
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // 描画ループ
+    function animate() {
+      requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    animate();
+  </script>
 </body>
 </html>
