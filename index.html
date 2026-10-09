@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>MindAR 縦横無尽タッチ操作モデル（認識改善版）</title>
+  <title>MindAR 縦横無尽タッチ操作モデル</title>
   <style>
     body {
       margin: 0;
@@ -32,8 +32,7 @@
     code { background: #333; padding: 2px 6px; border-radius: 4px; color: #61afef; }
   </style>
 
-  <!-- MindAR 1.2.5 と互換性が最も高い A-Frame 1.4.2 を使用 -->
-  <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
+  <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
 </head>
 <body>
@@ -43,11 +42,10 @@
     <div id="details" style="margin-top: 6px;">マーカーをカメラにかざしてください。</div>
   </div>
 
-  <!-- 認識感度と平滑化（スムージング）のバランスを最適化した設定 -->
   <a-scene 
-    mindar-image="imageTargetSrc: ./targets.mind; autoStart: true; filterMinCF: 0.001; filterBeta: 10; missTolerance: 5;" 
+    mindar-image="imageTargetSrc: ./targets.mind; autoStart: true; filterMinCF: 0.0001; filterBeta: 0.001; missTolerance: 10;" 
     color-space="sRGB" 
-    renderer="colorManagement: true, physicallyCorrectLights: true" 
+    renderer="colorManagement: true;" 
     vr-mode-ui="enabled: false" 
     device-orientation-permission-ui="enabled: false">
 
@@ -75,21 +73,21 @@
     const sceneEl = document.querySelector('a-scene');
     const houseMesh = document.querySelector('#houseMesh');
 
-    // 1. AR起動成功イベント
+    // 1. カメラ準備完了通知
     sceneEl.addEventListener("arReady", () => {
       statusEl.textContent = "カメラ起動成功！";
       statusEl.className = "success";
       detailsEl.innerHTML = "マーカーを映すと家が表示されます。<br>【操作方法】<br>・1本指スワイプ：上下左右に自由回転<br>・2本指ピンチ：拡大・縮小";
     });
 
-    // 2. AR読み込み・カメラエラーのイベント検出
-    sceneEl.addEventListener("arError", (event) => {
-      statusEl.textContent = "AR起動エラー";
+    // AR起動失敗時のエラーハンドリング
+    sceneEl.addEventListener("arError", () => {
+      statusEl.textContent = "カメラ/マーカー読み込みエラー";
       statusEl.className = "error";
-      detailsEl.innerHTML = "<code>targets.mind</code> の読み込み失敗、またはカメラアクセスが拒否されました。";
+      detailsEl.textContent = "カメラのアクセス権限またはtargets.mindファイルの読み込みに失敗しました。";
     });
 
-    // 3. マーカー認識イベント
+    // 2. マーカー認識イベント
     const targetEntity = document.querySelector('#targetEntity');
     targetEntity.addEventListener('targetFound', () => {
       statusEl.textContent = 'マーカー認識成功！';
@@ -103,7 +101,7 @@
       detailsEl.innerHTML = 'カメラにマーカー画像をかざしてください。';
     });
 
-    // 4. 【縦横無尽回転 ＆ 拡大縮小】タッチイベント処理
+    // 3. 【縦横無尽回転 ＆ 拡大縮小】タッチイベント処理
     let startX = null;
     let startY = null;
     let currentRotX = 0; // 縦回転（X軸）
@@ -121,7 +119,7 @@
           e.touches[0].clientY - e.touches[1].clientY
         );
         const currentScaleObj = houseMesh.getAttribute('scale');
-        initialScale = currentScaleObj.x;
+        initialScale = currentScaleObj ? currentScaleObj.x : 0.25;
       }
     });
 
