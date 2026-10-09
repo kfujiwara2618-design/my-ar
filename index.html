@@ -10,7 +10,7 @@
       padding: 0;
       overflow: hidden;
       font-family: sans-serif;
-      touch-action: none; /* スマホ画面のスクロールを無効化 */
+      touch-action: none;
     }
     #info-overlay {
       position: absolute;
@@ -32,6 +32,7 @@
     code { background: #333; padding: 2px 6px; border-radius: 4px; color: #61afef; }
   </style>
 
+  <!-- A-Frame & MindAR -->
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
 </head>
@@ -43,15 +44,11 @@
   </div>
 
   <a-scene 
-    mindar-image="imageTargetSrc: ./targets.mind; autoStart: true; missTolerance: 5;" 
+    mindar-image="imageTargetSrc: ./targets.mind; autoStart: true; filterMinCF: 0.0001; filterBeta: 0.001; missTolerance: 10;" 
     color-space="sRGB" 
     renderer="colorManagement: true, physicallyCorrectLights: true" 
     vr-mode-ui="enabled: false" 
     device-orientation-permission-ui="enabled: false">
-
-    <!-- ライティングを明示的に配置して表示を安定化 -->
-    <a-light type="ambient" intensity="1.2"></a-light>
-    <a-light type="directional" position="1 2 1" intensity="1.5"></a-light>
 
     <a-assets>
       <a-asset-item id="houseModel" src="house.glb"></a-asset-item>
@@ -81,7 +78,13 @@
     sceneEl.addEventListener("arReady", () => {
       statusEl.textContent = "カメラ起動成功！";
       statusEl.className = "success";
-      detailsEl.innerHTML = "マーカーを映すと家が表示されます。<br>【操作方法】<br>・1本指スワイプ：上下左右に自由回転<br>・2本指ピンチ：拡大・縮小";
+      detailsEl.innerHTML = "マーカーを映すと家が表示されます。<br>・1本指スワイプ：360度自由回転<br>・2本指ピンチ：拡大・縮小";
+    });
+
+    sceneEl.addEventListener("arError", () => {
+      statusEl.textContent = "カメラ起動エラー";
+      statusEl.className = "error";
+      detailsEl.innerHTML = "カメラの許可または <code>targets.mind</code> を確認してください。";
     });
 
     // 2. マーカー認識イベント
@@ -98,12 +101,22 @@
       detailsEl.innerHTML = 'カメラにマーカー画像をかざしてください。';
     });
 
-    // 3. Three.js object3D を直接操作する高安定タッチイベント
+    // 3. 【全方向タッチ回転 ＆ ピンチ拡大縮小】
     let startX = null;
     let startY = null;
+    let currentRotX = 0;
+    let currentRotY = 0;
     let initialDistance = null;
-    let currentScale = 0.25;
-    let startScale = 0.25;
+    let initialScale = 0.25;
+
+    // 現在のスケール値を安全に取得する関数
+    function getSafeScale() {
+      if (!houseMesh) return 0.25;
+      const s = houseMesh.getAttribute('scale');
+      if (typeof s === 'object' && s !== null && 'x' in s) return s.x;
+      if (typeof s === 'string') return parseFloat(s.split(' ')[0]) || 0.25;
+      return 0.25;
+    }
 
     window.addEventListener('touchstart', (e) => {
       if (e.touches.length === 1) {
@@ -114,32 +127,32 @@
           e.touches[0].clientX - e.touches[1].clientX,
           e.touches[0].clientY - e.touches[1].clientY
         );
-        startScale = currentScale;
+        initialScale = getSafeScale();
       }
     });
 
     window.addEventListener('touchmove', (e) => {
-      if (!houseMesh.object3D) return;
+      if (!houseMesh) return;
 
       if (e.touches.length === 1 && startX !== null && startY !== null) {
-        // 1本指スワイプ：上下左右の回転（Three.js直接制御）
         const deltaX = e.touches[0].clientX - startX;
         const deltaY = e.touches[0].clientY - startY;
 
-        houseMesh.object3D.rotation.y += deltaX * 0.01;
-        houseMesh.object3D.rotation.x += deltaY * 0.01;
+        currentRotY += deltaX * 0.5;
+        currentRotX += deltaY * 0.5;
+
+        houseMesh.setAttribute('rotation', `${currentRotX} ${currentRotY} 0`);
 
         startX = e.touches[0].clientX;
         startY = e.touches[0].clientY;
       } else if (e.touches.length === 2 && initialDistance !== null) {
-        // 2本指ピンチ：拡大・縮小（Three.js直接制御）
         const currentDistance = Math.hypot(
           e.touches[0].clientX - e.touches[1].clientX,
           e.touches[0].clientY - e.touches[1].clientY
         );
         const factor = currentDistance / initialDistance;
-        currentScale = Math.max(0.05, Math.min(1.5, startScale * factor));
-        houseMesh.object3D.scale.set(currentScale, currentScale, currentScale);
+        let newScale = Math.max(0.05, Math.min(1.5, initialScale * factor));
+        houseMesh.setAttribute('scale', `${newScale} ${newScale} ${newScale}`);
       }
     });
 
