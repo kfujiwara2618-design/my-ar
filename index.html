@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>MindAR 3Dモデル表示（家のGLB & トラブル診断機能付き）</title>
+  <title>MindAR 3Dモデル表示</title>
   <style>
     body {
       margin: 0;
@@ -11,8 +11,6 @@
       overflow: hidden;
       font-family: sans-serif;
     }
-
-    /* トラブル診断・ステータスオーバーレイ */
     #info-overlay {
       position: absolute;
       top: 12px;
@@ -25,22 +23,12 @@
       font-size: 13px;
       line-height: 1.6;
       z-index: 999;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
       pointer-events: none;
     }
-    #status {
-      font-weight: bold;
-      font-size: 14px;
-      color: #ffd700;
-    }
+    #status { font-weight: bold; font-size: 14px; color: #ffd700; }
     .error { color: #ff6b6b !important; }
     .success { color: #51cf66 !important; }
-    code {
-      background: #333;
-      padding: 2px 6px;
-      border-radius: 4px;
-      color: #61afef;
-    }
+    code { background: #333; padding: 2px 6px; border-radius: 4px; color: #61afef; }
   </style>
 
   <!-- A-Frame & MindAR ライブラリ -->
@@ -49,31 +37,27 @@
 </head>
 <body>
 
-  <!-- ステータス・トラブル診断パネル -->
   <div id="info-overlay">
-    <div><strong>状態:</strong> <span id="status">カメラ起動中...</span></div>
-    <div id="details" style="margin-top: 6px;"><code>house.glb</code> と <code>targets.mind</code> を読み込んでいます。</div>
+    <div><strong>状態:</strong> <span id="status">カメラ起動準備中...</span></div>
+    <div id="details" style="margin-top: 6px;">カメラアクセスを許可してください。</div>
   </div>
 
   <a-scene 
-    mindar-image="imageTargetSrc: ./targets.mind;" 
+    mindar-image="imageTargetSrc: ./targets.mind; autoStart: true; uiLoading: yes; uiError: yes; uiScanning: yes;" 
     color-space="sRGB" 
     renderer="colorManagement: true, physicallyCorrectLights: true" 
     vr-mode-ui="enabled: false" 
     device-orientation-permission-ui="enabled: false">
 
-    <!-- 3Dアセットの読み込み定義 -->
     <a-assets>
       <a-asset-item id="houseModel" src="house.glb"></a-asset-item>
     </a-assets>
 
     <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
-    <!-- マーカー認識時のエンティティ (targetIndex: 0) -->
+    <!-- マーカー認識時のみ表示されるエンティティ -->
     <a-entity id="targetEntity" mindar-image-target="targetIndex: 0">
-      <!-- 青い四角の代わりに「家の3Dモデル」を配置 -->
       <a-gltf-model 
-        id="houseMesh" 
         src="#houseModel" 
         position="0 0 0" 
         scale="0.25 0.25 0.25" 
@@ -86,48 +70,28 @@
   <script>
     const statusEl = document.getElementById('status');
     const detailsEl = document.getElementById('details');
+    const sceneEl = document.querySelector('a-scene');
 
-    // 1. file:// 直開きセキュリティ制限の検知
-    if (window.location.protocol === 'file:') {
-      statusEl.textContent = 'エラー: file:// 直開き';
-      statusEl.className = 'error';
-      detailsEl.innerHTML = `
-        <strong style="color:#ff6b6b;">【原因: ローカルファイル直接開き】</strong><br>
-        ブラウザで直接HTMLファイルを開いているため、セキュリティ制限によりカメラおよび <code>house.glb</code> の読み込みがブロックされています。<br><br>
-        <strong>対処法:</strong> Live Server または GitHub Pages 経由でアクセスしてください。
-      `;
-    }
-
-    // 2. 3Dモデル(house.glb)の読み込み状態チェック
-    const houseAsset = document.querySelector('#houseModel');
-
-    houseAsset.addEventListener('loaded', () => {
-      if (window.location.protocol !== 'file:') {
-        statusEl.textContent = '準備完了！マーカー検索中...';
-        statusEl.className = 'success';
-        detailsEl.innerHTML = `
-          <code>house.glb</code> の読み込みに成功しました！<br>
-          カメラにマーカー画像（<code>targets.mind</code>）をかざしてください。
-        `;
-      }
+    // MindARの読み込み完了イベント
+    sceneEl.addEventListener("arReady", (event) => {
+      statusEl.textContent = "カメラ起動成功！マーカーをかざしてください";
+      statusEl.className = "success";
+      detailsEl.innerHTML = "<code>targets.mind</code> の画像をカメラに映すと、家に切り替わります。";
     });
 
-    houseAsset.addEventListener('error', () => {
-      statusEl.textContent = '3Dモデル読込失敗';
-      statusEl.className = 'error';
-      detailsEl.innerHTML = `
-        <strong style="color:#ff6b6b;">【<code>house.glb</code> が見つかりません】</strong><br>
-        <code>index.html</code> と同じフォルダに <code>house.glb</code> があるか、ファイル名が正しいか確認してください。
-      `;
+    // MindARのエラーイベント
+    sceneEl.addEventListener("arError", (event) => {
+      statusEl.textContent = "ARエラーが発生しました";
+      statusEl.className = "error";
+      detailsEl.innerHTML = "<code>targets.mind</code> が読み込めないか、カメラへのアクセスが拒否されています。";
     });
 
-    // 3. マーカー認識（targetFound / targetLost）のイベント監視
+    // マーカー発見
     const targetEntity = document.querySelector('#targetEntity');
-
     targetEntity.addEventListener('targetFound', () => {
       statusEl.textContent = 'マーカー認識成功！';
       statusEl.className = 'success';
-      detailsEl.innerHTML = '画面上に家の3Dモデルを表示中！';
+      detailsEl.innerHTML = '家の3Dモデルを表示中！';
     });
 
     targetEntity.addEventListener('targetLost', () => {
