@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>MindAR 縦横無尽タッチ操作モデル</title>
+  <title>MindAR 縦横無尽タッチ操作モデル（修正版）</title>
   <style>
     body {
       margin: 0;
@@ -32,8 +32,7 @@
     code { background: #333; padding: 2px 6px; border-radius: 4px; color: #61afef; }
   </style>
 
-  <!-- A-Frame (1.4.2 安定版) & MindAR (1.2.5) -->
-  <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
+  <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
 </head>
 <body>
@@ -43,25 +42,26 @@
     <div id="details" style="margin-top: 6px;">マーカーをカメラにかざしてください。</div>
   </div>
 
+  <!-- 安定したフィルター値 (filterMinCF: 0.001; filterBeta: 10) に調整 -->
   <a-scene 
-    mindar-image="imageTargetSrc: ./targets.mind; autoStart: true; filterMinCF: 0.0001; filterBeta: 0.001; missTolerance: 10;" 
+    mindar-image="imageTargetSrc: ./targets.mind; autoStart: true; filterMinCF: 0.001; filterBeta: 10; missTolerance: 5;" 
     color-space="sRGB" 
-    renderer="colorManagement: true, physicallyCorrectLights: true" 
+    renderer="colorManagement: true; physicallyCorrectLights: true;" 
     vr-mode-ui="enabled: false" 
     device-orientation-permission-ui="enabled: false">
 
-    <a-assets>
-      <a-asset-item id="houseModel" src="house.glb"></a-asset-item>
-    </a-assets>
+    <!-- 3Dモデルを鮮明に表示するための照明（ライト）を追加 -->
+    <a-light type="ambient" intensity="1.2"></a-light>
+    <a-light type="directional" position="1 2 3" intensity="1.5"></a-light>
 
     <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
     <a-entity id="targetEntity" mindar-image-target="targetIndex: 0">
       <a-gltf-model 
         id="houseMesh" 
-        src="#houseModel" 
+        src="house.glb" 
         position="0 0 0" 
-        scale="0.25 0.25 0.25" 
+        scale="0.3 0.3 0.3" 
         rotation="0 0 0">
       </a-gltf-model>
     </a-entity>
@@ -78,15 +78,22 @@
     sceneEl.addEventListener("arReady", () => {
       statusEl.textContent = "カメラ起動成功！";
       statusEl.className = "success";
-      detailsEl.innerHTML = "マーカーを映すと家が表示されます。<br>【操作】1本指スワイプ：縦横回転 / 2本指：拡大縮小";
+      detailsEl.innerHTML = "マーカーを映すと家が表示されます。<br>【操作】スワイプで回転 / ピンチで拡大縮小";
     });
 
-    // 2. マーカー検知
+    // 2. ARエラー検出
+    sceneEl.addEventListener("arError", () => {
+      statusEl.textContent = "ARエラーが発生しました";
+      statusEl.className = "error";
+      detailsEl.innerHTML = "<code>targets.mind</code> やカメラのアクセス権限を確認してください。";
+    });
+
+    // 3. マーカー認識イベント
     const targetEntity = document.querySelector('#targetEntity');
     targetEntity.addEventListener('targetFound', () => {
       statusEl.textContent = 'マーカー認識成功！';
       statusEl.className = 'success';
-      detailsEl.innerHTML = 'スワイプで縦横無尽に回転操作できます。';
+      detailsEl.innerHTML = '家の3Dモデルを表示中（スワイプで全方向回転）';
     });
 
     targetEntity.addEventListener('targetLost', () => {
@@ -95,13 +102,20 @@
       detailsEl.innerHTML = 'カメラにマーカー画像をかざしてください。';
     });
 
-    // 3. タッチ操作（縦横無尽回転・拡大縮小）
+    // 4. 3Dモデル読み込みエラーのハンドリング
+    houseMesh.addEventListener('model-error', () => {
+      statusEl.textContent = '3Dモデル読み込み失敗';
+      statusEl.className = 'error';
+      detailsEl.innerHTML = '<code>house.glb</code> ファイルが同じフォルダにあるか確認してください。';
+    });
+
+    // 5. 【全方向回転 ＆ 拡大縮小】タッチイベント制御
     let startX = null;
     let startY = null;
     let currentRotX = 0;
     let currentRotY = 0;
     let initialDistance = null;
-    let initialScale = 0.25;
+    let initialScale = 0.3;
 
     window.addEventListener('touchstart', (e) => {
       if (e.touches.length === 1) {
@@ -113,7 +127,7 @@
           e.touches[0].clientY - e.touches[1].clientY
         );
         const currentScaleObj = houseMesh.getAttribute('scale');
-        initialScale = currentScaleObj ? currentScaleObj.x : 0.25;
+        initialScale = (currentScaleObj && currentScaleObj.x) ? currentScaleObj.x : 0.3;
       }
     });
 
@@ -129,13 +143,13 @@
 
         startX = e.touches[0].clientX;
         startY = e.touches[0].clientY;
-      } else if (e.touches.length === 2 && initialDistance !== null) {
+      } else if (e.touches.length === 2 && initialDistance !== null && initialDistance > 0) {
         const currentDistance = Math.hypot(
           e.touches[0].clientX - e.touches[1].clientX,
           e.touches[0].clientY - e.touches[1].clientY
         );
         const factor = currentDistance / initialDistance;
-        let newScale = Math.max(0.05, Math.min(1.5, initialScale * factor));
+        let newScale = Math.max(0.05, Math.min(2.0, initialScale * factor));
         houseMesh.setAttribute('scale', `${newScale} ${newScale} ${newScale}`);
       }
     });
