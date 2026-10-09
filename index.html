@@ -2,17 +2,16 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>MindAR 3Dモデル表示（家のGLB & トラブル診断機能付き）</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>MindAR 縦横無尽タッチ操作モデル（認識改善版）</title>
   <style>
     body {
       margin: 0;
       padding: 0;
       overflow: hidden;
       font-family: sans-serif;
+      touch-action: none; /* スマホ画面のスクロールを無効化 */
     }
-
-    /* トラブル診断・ステータスオーバーレイ */
     #info-overlay {
       position: absolute;
       top: 12px;
@@ -25,59 +24,46 @@
       font-size: 13px;
       line-height: 1.6;
       z-index: 999;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
       pointer-events: none;
     }
-    #status {
-      font-weight: bold;
-      font-size: 14px;
-      color: #ffd700;
-    }
-    .error { color: #ff6b6b !important; }
+    #status { font-weight: bold; font-size: 14px; color: #ffd700; }
     .success { color: #51cf66 !important; }
-    code {
-      background: #333;
-      padding: 2px 6px;
-      border-radius: 4px;
-      color: #61afef;
-    }
+    .error { color: #ff6b6b !important; }
+    code { background: #333; padding: 2px 6px; border-radius: 4px; color: #61afef; }
   </style>
 
-  <!-- A-Frame & MindAR ライブラリ -->
-  <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+  <!-- 安定動作する A-Frame 1.4.2 と MindAR 1.2.5 -->
+  <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
 </head>
 <body>
 
-  <!-- ステータス・トラブル診断パネル -->
   <div id="info-overlay">
-    <div><strong>状態:</strong> <span id="status">カメラ起動中...</span></div>
-    <div id="details" style="margin-top: 6px;"><code>house.glb</code> と <code>targets.mind</code> を読み込んでいます。</div>
+    <div><strong>状態:</strong> <span id="status">カメラ起動準備中...</span></div>
+    <div id="details" style="margin-top: 6px;">マーカーをカメラにかざしてください。</div>
   </div>
 
+  <!-- filterMinCF を適正値(0.001)に修正し認識精度を復元 -->
   <a-scene 
-    mindar-image="imageTargetSrc: ./targets.mind;" 
+    mindar-image="imageTargetSrc: ./targets.mind; autoStart: true; filterMinCF: 0.001; filterBeta: 1000; missTolerance: 5;" 
     color-space="sRGB" 
     renderer="colorManagement: true, physicallyCorrectLights: true" 
     vr-mode-ui="enabled: false" 
     device-orientation-permission-ui="enabled: false">
 
-    <!-- 3Dアセットの読み込み定義 -->
     <a-assets>
       <a-asset-item id="houseModel" src="house.glb"></a-asset-item>
     </a-assets>
 
     <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
-    <!-- マーカー認識時のエンティティ (targetIndex: 0) -->
     <a-entity id="targetEntity" mindar-image-target="targetIndex: 0">
-      <!-- 青い四角の代わりに「家の3Dモデル」を配置 -->
       <a-gltf-model 
         id="houseMesh" 
         src="#houseModel" 
         position="0 0 0" 
         scale="0.25 0.25 0.25" 
-        rotation="90 0 0">
+        rotation="0 0 0">
       </a-gltf-model>
     </a-entity>
 
@@ -86,54 +72,87 @@
   <script>
     const statusEl = document.getElementById('status');
     const detailsEl = document.getElementById('details');
+    const sceneEl = document.querySelector('a-scene');
+    const houseMesh = document.querySelector('#houseMesh');
 
-    // 1. file:// 直開きセキュリティ制限の検知
-    if (window.location.protocol === 'file:') {
-      statusEl.textContent = 'エラー: file:// 直開き';
-      statusEl.className = 'error';
-      detailsEl.innerHTML = `
-        <strong style="color:#ff6b6b;">【原因: ローカルファイル直接開き】</strong><br>
-        ブラウザで直接HTMLファイルを開いているため、セキュリティ制限によりカメラおよび <code>house.glb</code> の読み込みがブロックされています。<br><br>
-        <strong>対処法:</strong> Live Server または GitHub Pages 経由でアクセスしてください。
-      `;
-    }
-
-    // 2. 3Dモデル(house.glb)の読み込み状態チェック
-    const houseAsset = document.querySelector('#houseModel');
-
-    houseAsset.addEventListener('loaded', () => {
-      if (window.location.protocol !== 'file:') {
-        statusEl.textContent = '準備完了！マーカー検索中...';
-        statusEl.className = 'success';
-        detailsEl.innerHTML = `
-          <code>house.glb</code> の読み込みに成功しました！<br>
-          カメラにマーカー画像（<code>targets.mind</code>）をかざしてください。
-        `;
-      }
+    // 1. カメラ・AR準備完了通知
+    sceneEl.addEventListener("arReady", () => {
+      statusEl.textContent = "カメラ起動成功！";
+      statusEl.className = "success";
+      detailsEl.innerHTML = "マーカーを映すと家が表示されます。<br>【操作方法】<br>・1本指スワイプ：上下左右に自由回転<br>・2本指ピンチ：拡大・縮小";
     });
 
-    houseAsset.addEventListener('error', () => {
-      statusEl.textContent = '3Dモデル読込失敗';
-      statusEl.className = 'error';
-      detailsEl.innerHTML = `
-        <strong style="color:#ff6b6b;">【<code>house.glb</code> が見つかりません】</strong><br>
-        <code>index.html</code> と同じフォルダに <code>house.glb</code> があるか、ファイル名が正しいか確認してください。
-      `;
+    // エラー検知
+    sceneEl.addEventListener("arError", (event) => {
+      statusEl.textContent = "ARエラーが発生しました";
+      statusEl.className = "error";
+      detailsEl.innerHTML = "<code>targets.mind</code> の読み込み失敗、またはカメラ権限がありません。";
     });
 
-    // 3. マーカー認識（targetFound / targetLost）のイベント監視
+    // 2. マーカー認識イベント
     const targetEntity = document.querySelector('#targetEntity');
-
     targetEntity.addEventListener('targetFound', () => {
       statusEl.textContent = 'マーカー認識成功！';
       statusEl.className = 'success';
-      detailsEl.innerHTML = '画面上に家の3Dモデルを表示中！';
+      detailsEl.innerHTML = 'スワイプで縦横無尽に回転操作できます。';
     });
 
     targetEntity.addEventListener('targetLost', () => {
       statusEl.textContent = 'マーカー検索中...';
       statusEl.className = '';
       detailsEl.innerHTML = 'カメラにマーカー画像をかざしてください。';
+    });
+
+    // 3. タッチ操作処理（縦横無尽回転 ＆ 拡大縮小）
+    let startX = null;
+    let startY = null;
+    let currentRotX = 0; // 縦回転（X軸）
+    let currentRotY = 0; // 横回転（Y軸）
+    let initialDistance = null;
+    let initialScale = 0.25;
+
+    window.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 1) {
+        startX = e.touches[0].clientX;
+        startY = e.touches[0].clientY;
+      } else if (e.touches.length === 2) {
+        initialDistance = Math.hypot(
+          e.touches[0].clientX - e.touches[1].clientX,
+          e.touches[0].clientY - e.touches[1].clientY
+        );
+        const currentScaleObj = houseMesh.getAttribute('scale');
+        initialScale = currentScaleObj.x;
+      }
+    });
+
+    window.addEventListener('touchmove', (e) => {
+      if (e.touches.length === 1 && startX !== null && startY !== null) {
+        const deltaX = e.touches[0].clientX - startX;
+        const deltaY = e.touches[0].clientY - startY;
+
+        // 左右スワイプでY軸回転 / 上下スワイプでX軸回転
+        currentRotY += deltaX * 0.5;
+        currentRotX += deltaY * 0.5;
+
+        houseMesh.setAttribute('rotation', `${currentRotX} ${currentRotY} 0`);
+
+        startX = e.touches[0].clientX;
+        startY = e.touches[0].clientY;
+      } else if (e.touches.length === 2 && initialDistance !== null) {
+        const currentDistance = Math.hypot(
+          e.touches[0].clientX - e.touches[1].clientX,
+          e.touches[0].clientY - e.touches[1].clientY
+        );
+        const factor = currentDistance / initialDistance;
+        let newScale = Math.max(0.05, Math.min(1.5, initialScale * factor));
+        houseMesh.setAttribute('scale', `${newScale} ${newScale} ${newScale}`);
+      }
+    });
+
+    window.addEventListener('touchend', () => {
+      startX = null;
+      startY = null;
+      initialDistance = null;
     });
   </script>
 </body>
