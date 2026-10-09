@@ -42,13 +42,16 @@
     <div id="details" style="margin-top: 6px;">マーカーをカメラにかざしてください。</div>
   </div>
 
-  <!-- スムージング設定(filterMinCF, filterBeta, missTolerance)でブレ・カクつきを抑止 -->
   <a-scene 
-    mindar-image="imageTargetSrc: ./targets.mind; autoStart: true; filterMinCF: 0.0001; filterBeta: 0.001; missTolerance: 10;" 
+    mindar-image="imageTargetSrc: ./targets.mind; autoStart: true; missTolerance: 5;" 
     color-space="sRGB" 
     renderer="colorManagement: true, physicallyCorrectLights: true" 
     vr-mode-ui="enabled: false" 
     device-orientation-permission-ui="enabled: false">
+
+    <!-- ライティングを明示的に配置して表示を安定化 -->
+    <a-light type="ambient" intensity="1.2"></a-light>
+    <a-light type="directional" position="1 2 1" intensity="1.5"></a-light>
 
     <a-assets>
       <a-asset-item id="houseModel" src="house.glb"></a-asset-item>
@@ -57,7 +60,6 @@
     <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
     <a-entity id="targetEntity" mindar-image-target="targetIndex: 0">
-      <!-- 3Dモデル（自動アニメーションは削除） -->
       <a-gltf-model 
         id="houseMesh" 
         src="#houseModel" 
@@ -96,54 +98,48 @@
       detailsEl.innerHTML = 'カメラにマーカー画像をかざしてください。';
     });
 
-    // 3. 【縦横無尽回転 ＆ 拡大縮小】タッチイベント処理
+    // 3. Three.js object3D を直接操作する高安定タッチイベント
     let startX = null;
     let startY = null;
-    let currentRotX = 0; // 縦回転（X軸）
-    let currentRotY = 0; // 横回転（Y軸）
     let initialDistance = null;
-    let initialScale = 0.25;
+    let currentScale = 0.25;
+    let startScale = 0.25;
 
     window.addEventListener('touchstart', (e) => {
       if (e.touches.length === 1) {
-        // 1本指：回転開始位置（X座標・Y座標）を記録
         startX = e.touches[0].clientX;
         startY = e.touches[0].clientY;
       } else if (e.touches.length === 2) {
-        // 2本指：ピンチ拡大縮小の基準距離を記録
         initialDistance = Math.hypot(
           e.touches[0].clientX - e.touches[1].clientX,
           e.touches[0].clientY - e.touches[1].clientY
         );
-        const currentScaleObj = houseMesh.getAttribute('scale');
-        initialScale = currentScaleObj.x;
+        startScale = currentScale;
       }
     });
 
     window.addEventListener('touchmove', (e) => {
+      if (!houseMesh.object3D) return;
+
       if (e.touches.length === 1 && startX !== null && startY !== null) {
-        // 1本指スワイプ処理
+        // 1本指スワイプ：上下左右の回転（Three.js直接制御）
         const deltaX = e.touches[0].clientX - startX;
         const deltaY = e.touches[0].clientY - startY;
 
-        // 左右移動(deltaX)でY軸回転 / 上下移動(deltaY)でX軸回転
-        currentRotY += deltaX * 0.5;
-        currentRotX += deltaY * 0.5;
-
-        // モデルの角度をリアルタイム更新
-        houseMesh.setAttribute('rotation', `${currentRotX} ${currentRotY} 0`);
+        houseMesh.object3D.rotation.y += deltaX * 0.01;
+        houseMesh.object3D.rotation.x += deltaY * 0.01;
 
         startX = e.touches[0].clientX;
         startY = e.touches[0].clientY;
       } else if (e.touches.length === 2 && initialDistance !== null) {
-        // 2本指ピンチ（拡大・縮小）処理
+        // 2本指ピンチ：拡大・縮小（Three.js直接制御）
         const currentDistance = Math.hypot(
           e.touches[0].clientX - e.touches[1].clientX,
           e.touches[0].clientY - e.touches[1].clientY
         );
         const factor = currentDistance / initialDistance;
-        let newScale = Math.max(0.05, Math.min(1.5, initialScale * factor));
-        houseMesh.setAttribute('scale', `${newScale} ${newScale} ${newScale}`);
+        currentScale = Math.max(0.05, Math.min(1.5, startScale * factor));
+        houseMesh.object3D.scale.set(currentScale, currentScale, currentScale);
       }
     });
 
