@@ -2,15 +2,38 @@
 <html lang="ja">
   <head>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- 3D表示用ライブラリ: A-Frame -->
     <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+    <!-- WebAR認識用ライブラリ: MindAR (A-Frame版) -->
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
   </head>
   <body>
-    <a-scene mindar-image="imageTargetSrc: ./targets.mind;" vr-mode-ui="enabled: false">
+    <a-scene 
+      mindar-image="imageTargetSrc: ./targets.mind;" 
+      color-space="sRGB" 
+      renderer="colorManagement: true, physicallyCorrectLights" 
+      vr-mode-ui="enabled: false" 
+      device-orientation-permission-ui="enabled: false">
+
+      <!-- 3Dモデルなどのアセット（素材）を事前に読み込む設定 -->
+      <a-assets>
+        <a-asset-item id="houseModel" src="./house.glb"></a-asset-item>
+      </a-assets>
+
       <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+
+      <!-- マーカー画像を認識した時に表示する要素 -->
       <a-entity mindar-image-target="targetIndex: 0">
-        <a-plane color="blue" opacity="0.8" position="0 0 0" height="0.55" width="1"></a-plane>
+        <!-- 家の3Dモデルを表示 -->
+        <!-- scale: 大きさ, position: 位置(X Y Z), rotation: 傾き(X Y Z) -->
+        <a-gltf-model 
+          src="#houseModel" 
+          position="0 0 0" 
+          scale="0.1 0.1 0.1" 
+          rotation="90 0 0">
+        </a-gltf-model>
       </a-entity>
+
     </a-scene>
   </body>
 </html>
