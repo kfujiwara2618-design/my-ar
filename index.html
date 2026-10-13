@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>MindAR 永久表示 & 撮影カメラ</title>
+  <title>AR Camera & Always-On 3D Model</title>
   <style>
     body {
       margin: 0;
@@ -63,16 +63,15 @@
     }
   </style>
 
-  <!-- A-Frame & MindAR ライブラリ -->
+  <!-- A-Frame ライブラリ -->
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
 </head>
 <body>
 
   <!-- ステータス・ガイド表示 -->
   <div id="info-overlay">
-    <div>AR CAMERA: <span id="status">CONNECTING...</span></div>
-    <div style="margin-top: 2px; font-size: 8.5px; color: rgba(255,255,255,0.6);">一度読むと常時表示 / 1本指回転 / 2本指ピンチ拡大 / 撮影</div>
+    <div>AR CAMERA: <span id="status">ACTIVE (常時表示モード)</span></div>
+    <div style="margin-top: 2px; font-size: 8.5px; color: rgba(255,255,255,0.6);">1本指で回転 / 2本指でピンチ拡大縮小 / ボタンで撮影</div>
   </div>
 
   <!-- シャッターボタン -->
@@ -80,9 +79,9 @@
     <button id="shutter-btn" title="Capture"></button>
   </div>
 
-  <!-- MindAR シーン -->
+  <!-- 常にカメラ映像と3Dモデルを表示するシーン -->
   <a-scene 
-    mindar-image="imageTargetSrc: ./targets.mind;" 
+    embedded
     vr-mode-ui="enabled: false" 
     device-orientation-permission-ui="enabled: false"
     renderer="preserveDrawingBuffer: true, colorManagement: true">
@@ -91,59 +90,73 @@
       <a-asset-item id="houseModel" src="house.glb"></a-asset-item>
     </a-assets>
 
-    <!-- カメラ（ここにモデルが常時固定されます） -->
-    <a-camera id="mainCamera" position="0 0 0" look-controls="enabled: false">
-      <!-- 最初のマーカー認識時に、ここに家モデルが移動して永続表示されます -->
-    </a-camera>
+    <!-- カメラ位置と、スマホの向き（ジャイロ・デバイス方位）に連動する視点制御 -->
+    <a-camera position="0 1.6 0" look-controls="enabled: true"></a-camera>
 
-    <!-- マーカー認識のトリガー用エンティティ -->
-    <a-entity id="targetEntity" mindar-image-target="targetIndex: 0">
-      <a-gltf-model 
-        id="houseMesh" 
-        src="#houseModel" 
-        position="0 0 0" 
-        scale="0.25 0.25 0.25" 
-        rotation="0 0 0">
-      </a-gltf-model>
+    <!-- マーカーを使わず、カメラの真正面（少し前方の空間）に常時3Dモデルを配置 -->
+    <a-entity id="houseMesh" 
+      gltf-model="#houseModel" 
+      position="0 1.2 -1.5" 
+      scale="0.3 0.3 0.3" 
+      rotation="0 0 0">
     </a-entity>
+
+    <!-- 背景にスマホのリアルタイムカメラ映像をフルスクリーンで映し出すシステム -->
+    <a-entity id="ar-camera-bg" camera></a-entity>
 
   </a-scene>
 
   <script>
     const statusEl = document.getElementById('status');
-    const sceneEl = document.querySelector('a-scene');
     const houseMesh = document.querySelector('#houseMesh');
-    const cameraEl = document.querySelector('#mainCamera');
-    const targetEntity = document.querySelector('#targetEntity');
     const shutterBtn = document.getElementById('shutter-btn');
+    const sceneEl = document.querySelector('a-scene');
 
-    let isPersistent = false; // 一度読んだかどうかのフラグ
-
-    // 1. MindARカメラ起動完了
-    sceneEl.addEventListener("arReady", () => {
-      statusEl.textContent = "READY - マーカーをかざしてください";
-    });
-
-    // 2. マーカーを「1度でも」認識した瞬間の処理
-    targetEntity.addEventListener('targetFound', () => {
-      if (!isPersistent) {
-        isPersistent = true;
-        statusEl.textContent = '常時表示中 (マーカー不要)';
-
-        // 3Dモデルをターゲット（マーカー）からカメラの子要素に移動させ、画面中央に固定
-        cameraEl.appendChild(houseMesh);
-        houseMesh.setAttribute('position', '0 -0.2 -1.5'); // カメラの真正面に配置
-        houseMesh.setAttribute('rotation', '0 0 0');
+    // --- ブラウザの標準機能で背面カメラ映像を背景に常時ストリーミング起動 ---
+    async function startCameraBackground() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { exact: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+          audio: false
+        });
+        setupVideoElement(stream);
+      } catch (err) {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+          setupVideoElement(stream);
+        } catch (e) {
+          statusEl.textContent = "カメラエラー";
+          console.error(e);
+        }
       }
-    });
+    }
 
-    // 3. タッチ操作（1本指全方向回転 ＆ 2本指ピンチ拡大縮小）
+    let bgVideoEl = null;
+    function setupVideoElement(stream) {
+      bgVideoEl = document.createElement('video');
+      bgVideoEl.srcObject = stream;
+      bgVideoEl.setAttribute('autoplay', '');
+      bgVideoEl.setAttribute('playsinline', '');
+      bgVideoEl.setAttribute('muted', '');
+      bgVideoEl.style.position = 'absolute';
+      bgVideoEl.style.top = '0';
+      bgVideoEl.style.left = '0';
+      bgVideoEl.style.width = '100vw';
+      bgVideoEl.style.height = '100vh';
+      bgVideoEl.style.objectFit = 'cover';
+      bgVideoEl.style.zIndex = '-1'; // 3DシーンやUIの後ろに配置
+      document.body.prepend(bgVideoEl);
+      statusEl.textContent = "常時表示中 (撮影可能)";
+    }
+    startCameraBackground();
+
+    // --- タッチ操作（1本指スワイプ全方向回転 ＆ 2本指ピンチ拡大縮小） ---
     let startX = null;
     let startY = null;
     let currentRotX = 0;
     let currentRotY = 0;
     let initialDistance = null;
-    let initialScale = 0.25;
+    let initialScale = 0.3;
 
     window.addEventListener('touchstart', (e) => {
       if (e.touches.length === 1) {
@@ -189,18 +202,17 @@
       initialDistance = null;
     });
 
-    // 4. シャッター撮影機能
+    // --- シャッター撮影機能（カメラ映像 ＋ 3Dモデル合成保存） ---
     shutterBtn.addEventListener('click', () => {
-      const videoEl = document.querySelector('video');
       const arCanvas = sceneEl.renderer.domElement;
-
       const saveCanvas = document.createElement('canvas');
       saveCanvas.width = arCanvas.width;
       saveCanvas.height = arCanvas.height;
       const saveCtx = saveCanvas.getContext('2d');
 
-      if (videoEl && videoEl.readyState === videoEl.HAVE_ENOUGH_DATA) {
-        const vRatio = videoEl.videoWidth / videoEl.videoHeight;
+      // ① 背景のカメラ映像を描画
+      if (bgVideoEl && bgVideoEl.readyState === bgVideoEl.HAVE_ENOUGH_DATA) {
+        const vRatio = bgVideoEl.videoWidth / bgVideoEl.videoHeight;
         const cRatio = saveCanvas.width / saveCanvas.height;
         let w = saveCanvas.width, h = saveCanvas.height, x = 0, y = 0;
         if (vRatio > cRatio) {
@@ -210,13 +222,15 @@
           h = saveCanvas.width / vRatio;
           y = (saveCanvas.height - h) / 2;
         }
-        saveCtx.drawImage(videoEl, x, y, w, h);
+        saveCtx.drawImage(bgVideoEl, x, y, w, h);
       }
 
+      // ② 3Dモデルを描画
       saveCtx.drawImage(arCanvas, 0, 0);
 
+      // ③ 画像としてダウンロード保存
       const link = document.createElement('a');
-      link.download = 'ar_snapshot_' + Date.now() + '.png';
+      link.download = 'ar_always_on_' + Date.now() + '.png';
       link.href = saveCanvas.toDataURL('image/png', 1.0);
       link.click();
     });
