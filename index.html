@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>MindAR 3D Model Persistent AR</title>
+  <title>MindAR 3D Model AR Camera & Snapshot</title>
   <style>
     body {
       margin: 0;
@@ -80,7 +80,7 @@
     <button id="shutter-btn" title="Capture"></button>
   </div>
 
-  <!-- MindAR シーン -->
+  <!-- MindAR シーン (preserveDrawingBuffer: true で撮影を有効化) -->
   <a-scene 
     mindar-image="imageTargetSrc: ./targets.mind;" 
     vr-mode-ui="enabled: false" 
@@ -93,18 +93,16 @@
 
     <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
-    <!-- マーカー認識判定用ターゲット -->
-    <a-entity id="targetEntity" mindar-image-target="targetIndex: 0"></a-entity>
-
-    <!-- シーン直下に配置（最初は非表示、認識された瞬間にその場に固定出現して消えなくなる） -->
-    <a-gltf-model 
-      id="houseMesh" 
-      src="#houseModel" 
-      position="0 0 0" 
-      scale="0.25 0.25 0.25" 
-      rotation="0 0 0"
-      visible="false">
-    </a-gltf-model>
+    <!-- マーカー認識時のエンティティ -->
+    <a-entity id="targetEntity" mindar-image-target="targetIndex: 0">
+      <a-gltf-model 
+        id="houseMesh" 
+        src="#houseModel" 
+        position="0 0 0" 
+        scale="0.25 0.25 0.25" 
+        rotation="0 0 0">
+      </a-gltf-model>
+    </a-entity>
 
   </a-scene>
 
@@ -112,46 +110,21 @@
     const statusEl = document.getElementById('status');
     const sceneEl = document.querySelector('a-scene');
     const houseMesh = document.querySelector('#houseMesh');
-    const targetEntity = document.querySelector('#targetEntity');
     const shutterBtn = document.getElementById('shutter-btn');
 
-    let isSpawned = false;
-
-    // 1. カメラ起動完了
+    // 1. MindARカメラ起動完了
     sceneEl.addEventListener("arReady", () => {
       statusEl.textContent = "READY - マーカーをかざしてください";
     });
 
-    // 2. マーカーを一度見つけたら、その位置にモデルを固定して以降は永続表示する
+    // 2. マーカー認識状態
+    const targetEntity = document.querySelector('#targetEntity');
     targetEntity.addEventListener('targetFound', () => {
-      statusEl.textContent = '表示中（固定モード・撮影可能）';
-
-      if (!isSpawned) {
-        isSpawned = true;
-        houseMesh.setAttribute('visible', 'true');
-
-        // マーカーのワールド座標を取得し、シーン直下に固定配置する
-        setTimeout(() => {
-          const obj3d = targetEntity.object3D;
-          const worldPos = new THREE.Vector3();
-          const worldQuat = new THREE.Quaternion();
-          const worldScale = new THREE.Vector3();
-
-          obj3d.matrixWorld.decompose(worldPos, worldQuat, worldScale);
-
-          sceneEl.object3D.add(houseMesh.object3D);
-          houseMesh.object3D.position.copy(worldPos);
-          houseMesh.object3D.quaternion.copy(worldQuat);
-        }, 50);
-      }
+      statusEl.textContent = '認識中 (撮影可能)';
     });
 
     targetEntity.addEventListener('targetLost', () => {
-      if (isSpawned) {
-        statusEl.textContent = 'マーカーロスト（モデル保持中）';
-      } else {
-        statusEl.textContent = 'マーカーを検索中...';
-      }
+      statusEl.textContent = 'マーカーを検索中...';
     });
 
     // 3. タッチ操作（1本指全方向回転 ＆ 2本指ピンチ拡大縮小）
@@ -171,24 +144,22 @@
           e.touches[0].clientX - e.touches[1].clientX,
           e.touches[0].clientY - e.touches[1].clientY
         );
-        if (houseMesh && houseMesh.object3D) {
-          initialScale = houseMesh.object3D.scale.x;
+        if (houseMesh) {
+          const s = houseMesh.getAttribute('scale');
+          if (s) initialScale = s.x;
         }
       }
     }, { passive: true });
 
     window.addEventListener('touchmove', (e) => {
-      if (!houseMesh || !houseMesh.object3D) return;
+      if (!houseMesh) return;
 
       if (e.touches.length === 1 && startX !== null && startY !== null) {
         const deltaX = e.touches[0].clientX - startX;
         const deltaY = e.touches[0].clientY - startY;
         currentRotY += deltaX * 0.5;
         currentRotX += deltaY * 0.5;
-        
-        houseMesh.object3D.rotation.y = THREE.MathUtils.degToRad(currentRotY);
-        houseMesh.object3D.rotation.x = THREE.MathUtils.degToRad(currentRotX);
-
+        houseMesh.setAttribute('rotation', `${currentRotX} ${currentRotY} 0`);
         startX = e.touches[0].clientX;
         startY = e.touches[0].clientY;
       } else if (e.touches.length === 2 && initialDistance !== null && initialDistance > 0) {
@@ -198,7 +169,7 @@
         );
         const factor = currentDistance / initialDistance;
         let newScale = Math.max(0.05, Math.min(2.0, initialScale * factor));
-        houseMesh.object3D.scale.set(newScale, newScale, newScale);
+        houseMesh.setAttribute('scale', `${newScale} ${newScale} ${newScale}`);
       }
     }, { passive: true });
 
@@ -208,16 +179,17 @@
       initialDistance = null;
     });
 
-    // 4. シャッター撮影機能（合成保存）
+    // 4. シャッター撮影機能（カメラ背景映像 ＋ 3Dモデルを合成してPNG保存）
     shutterBtn.addEventListener('click', () => {
-      const videoEl = document.querySelector('video');
-      const arCanvas = sceneEl.renderer.domElement;
+      const videoEl = document.querySelector('video'); // MindARの背景カメラ映像
+      const arCanvas = sceneEl.renderer.domElement;   // 3Dモデルが描画されているWebGLキャンバス
 
       const saveCanvas = document.createElement('canvas');
       saveCanvas.width = arCanvas.width;
       saveCanvas.height = arCanvas.height;
       const saveCtx = saveCanvas.getContext('2d');
 
+      // ① 背景のカメラ映像を描画
       if (videoEl && videoEl.readyState === videoEl.HAVE_ENOUGH_DATA) {
         const vRatio = videoEl.videoWidth / videoEl.videoHeight;
         const cRatio = saveCanvas.width / saveCanvas.height;
@@ -232,8 +204,10 @@
         saveCtx.drawImage(videoEl, x, y, w, h);
       }
 
+      // ② その上から3Dモデルの描画内容を合成
       saveCtx.drawImage(arCanvas, 0, 0);
 
+      // ③ スマホのアルバムやPCにPNG画像として保存
       const link = document.createElement('a');
       link.download = 'ar_snapshot_' + Date.now() + '.png';
       link.href = saveCanvas.toDataURL('image/png', 1.0);
