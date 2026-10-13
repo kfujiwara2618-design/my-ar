@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>MindAR 3Dモデル常時表示 ＆ 撮影機能</title>
+  <title>MindAR 3D Model AR Camera & Snapshot</title>
   <style>
     body {
       margin: 0;
@@ -14,7 +14,7 @@
       touch-action: none;
     }
 
-    /* グラスモーフィズム調のステータス表示 */
+    /* ラグジュアリーなステータス表示（グラスモーフィズム） */
     #info-overlay {
       position: absolute;
       top: 20px;
@@ -37,7 +37,7 @@
     }
     #status { font-weight: 500; color: #e4c38b; }
 
-    /* メタリック調のシャッターボタン */
+    /* 最高級メタリック調のシャッターボタン */
     #shutter-container {
       position: absolute;
       bottom: 45px;
@@ -69,15 +69,18 @@
 </head>
 <body>
 
+  <!-- ステータス・ガイド表示 -->
   <div id="info-overlay">
-    <div>AR CAMERA: <span id="status">カメラ起動中...</span></div>
-    <div style="margin-top: 2px; font-size: 8.5px; color: rgba(255,255,255,0.6);">一度マーカーを読むと、見失っても常時表示されます</div>
+    <div>AR CAMERA: <span id="status">CONNECTING...</span></div>
+    <div style="margin-top: 2px; font-size: 8.5px; color: rgba(255,255,255,0.6);">1本指で回転 / 2本指でピンチ拡大縮小 / ボタンで撮影</div>
   </div>
 
+  <!-- シャッターボタン -->
   <div id="shutter-container">
     <button id="shutter-btn" title="Capture"></button>
   </div>
 
+  <!-- MindAR シーン (preserveDrawingBuffer: true で撮影を有効化) -->
   <a-scene 
     mindar-image="imageTargetSrc: ./targets.mind;" 
     vr-mode-ui="enabled: false" 
@@ -90,16 +93,14 @@
 
     <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
-    <!-- マーカー認識ターゲット -->
+    <!-- マーカー認識時のエンティティ -->
     <a-entity id="targetEntity" mindar-image-target="targetIndex: 0">
-      <!-- 家の3Dモデル：初期から常に表示(visible="true") -->
       <a-gltf-model 
         id="houseMesh" 
         src="#houseModel" 
         position="0 0 0" 
         scale="0.25 0.25 0.25" 
-        rotation="0 0 0"
-        visible="true">
+        rotation="0 0 0">
       </a-gltf-model>
     </a-entity>
 
@@ -109,33 +110,24 @@
     const statusEl = document.getElementById('status');
     const sceneEl = document.querySelector('a-scene');
     const houseMesh = document.querySelector('#houseMesh');
-    const targetEntity = document.querySelector('#targetEntity');
     const shutterBtn = document.getElementById('shutter-btn');
 
-    let isPersistent = false; // 一度マーカーを読んだかどうかのフラグ
-
+    // 1. MindARカメラ起動完了
     sceneEl.addEventListener("arReady", () => {
-      statusEl.textContent = "READY - マーカーにかざしてください";
+      statusEl.textContent = "READY - マーカーをかざしてください";
     });
 
-    // マーカーを初めて認識した瞬間、または常時表示に切り替える処理
+    // 2. マーカー認識状態
+    const targetEntity = document.querySelector('#targetEntity');
     targetEntity.addEventListener('targetFound', () => {
-      if (!isPersistent) {
-        isPersistent = true;
-        statusEl.textContent = '3Dモデル常時表示中（撮影可能）';
-      }
+      statusEl.textContent = '認識中 (撮影可能)';
     });
 
     targetEntity.addEventListener('targetLost', () => {
-      // マーカーを見失っても、isPersistentがtrueならそのまま表示し続ける
-      if (isPersistent) {
-        statusEl.textContent = '常時表示モード継続中';
-      } else {
-        statusEl.textContent = 'マーカーを検索中...';
-      }
+      statusEl.textContent = 'マーカーを検索中...';
     });
 
-    // --- タッチ操作（1本指全方向回転 ＆ 2本指ピンチ拡大縮小） ---
+    // 3. タッチ操作（1本指全方向回転 ＆ 2本指ピンチ拡大縮小）
     let startX = null;
     let startY = null;
     let currentRotX = 0;
@@ -187,16 +179,17 @@
       initialDistance = null;
     });
 
-    // --- シャッター撮影機能 ---
+    // 4. シャッター撮影機能（カメラ背景映像 ＋ 3Dモデルを合成してPNG保存）
     shutterBtn.addEventListener('click', () => {
-      const videoEl = document.querySelector('video');
-      const arCanvas = sceneEl.renderer.domElement;
+      const videoEl = document.querySelector('video'); // MindARの背景カメラ映像
+      const arCanvas = sceneEl.renderer.domElement;   // 3Dモデルが描画されているWebGLキャンバス
 
       const saveCanvas = document.createElement('canvas');
       saveCanvas.width = arCanvas.width;
       saveCanvas.height = arCanvas.height;
       const saveCtx = saveCanvas.getContext('2d');
 
+      // ① 背景のカメラ映像を描画
       if (videoEl && videoEl.readyState === videoEl.HAVE_ENOUGH_DATA) {
         const vRatio = videoEl.videoWidth / videoEl.videoHeight;
         const cRatio = saveCanvas.width / saveCanvas.height;
@@ -211,8 +204,10 @@
         saveCtx.drawImage(videoEl, x, y, w, h);
       }
 
+      // ② その上から3Dモデルの描画内容を合成
       saveCtx.drawImage(arCanvas, 0, 0);
 
+      // ③ スマホのアルバムやPCにPNG画像として保存
       const link = document.createElement('a');
       link.download = 'ar_snapshot_' + Date.now() + '.png';
       link.href = saveCanvas.toDataURL('image/png', 1.0);
