@@ -3,47 +3,89 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>MindAR 安定版 - 3Dモデル全方向タッチ操作</title>
+  <title>MindAR 3D Model AR Camera & Snapshot</title>
   <style>
     body {
       margin: 0;
       padding: 0;
       overflow: hidden;
-      font-family: sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', Arial, sans-serif;
+      background: #000;
+      touch-action: none;
     }
+
+    /* ラグジュアリーなステータス表示（グラスモーフィズム） */
     #info-overlay {
       position: absolute;
-      top: 12px;
-      left: 12px;
-      background: rgba(0, 0, 0, 0.8);
-      color: #ffffff;
-      padding: 10px 14px;
-      border-radius: 8px;
-      font-size: 12px;
-      z-index: 999;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(15, 15, 15, 0.75);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      color: #f7f3ed;
+      padding: 8px 20px;
+      border-radius: 30px;
+      border: 1px solid rgba(228, 195, 139, 0.4);
+      font-size: 11px;
+      letter-spacing: 0.1em;
+      z-index: 10;
       pointer-events: none;
+      text-align: center;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+      white-space: nowrap;
     }
-    #status { font-weight: bold; color: #ffd700; }
-    .success { color: #51cf66 !important; }
-    .error { color: #ff6b6b !important; }
+    #status { font-weight: 500; color: #e4c38b; }
+
+    /* 最高級メタリック調のシャッターボタン */
+    #shutter-container {
+      position: absolute;
+      bottom: 45px;
+      left: 0;
+      width: 100%;
+      text-align: center;
+      z-index: 10;
+    }
+    #shutter-btn {
+      width: 78px;
+      height: 78px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #ffffff 0%, #d8c4b6 50%, #b8977e 100%);
+      border: 3px solid rgba(228, 195, 139, 0.95);
+      cursor: pointer;
+      box-shadow: 0 12px 35px rgba(0,0,0,0.7), inset 0 2px 6px rgba(255,255,255,0.95);
+      transition: transform 0.15s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.15s ease;
+      outline: none;
+    }
+    #shutter-btn:active {
+      transform: scale(0.92);
+      box-shadow: 0 5px 15px rgba(0,0,0,0.5), inset 0 1px 3px rgba(0,0,0,0.4);
+    }
   </style>
 
-  <!-- A-Frame & MindAR (基本構造通り) -->
+  <!-- A-Frame & MindAR ライブラリ -->
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
 </head>
 <body>
 
-  <!-- 画面左上の状態確認表示 -->
+  <!-- ステータス・ガイド表示 -->
   <div id="info-overlay">
-    <div>状態: <span id="status">準備中...</span></div>
+    <div>AR CAMERA: <span id="status">CONNECTING...</span></div>
+    <div style="margin-top: 2px; font-size: 8.5px; color: rgba(255,255,255,0.6);">1本指で回転 / 2本指でピンチ拡大縮小 / ボタンで撮影</div>
   </div>
 
-  <!-- 参考コードと同じシンプルで最も安定した a-scene 構造 -->
+  <!-- シャッターボタン -->
+  <div id="shutter-container">
+    <button id="shutter-btn" title="Capture"></button>
+  </div>
+
+  <!-- MindAR シーン (preserveDrawingBuffer: true で撮影を有効化) -->
   <a-scene 
     mindar-image="imageTargetSrc: ./targets.mind;" 
     vr-mode-ui="enabled: false" 
-    device-orientation-permission-ui="enabled: false">
+    device-orientation-permission-ui="enabled: false"
+    renderer="preserveDrawingBuffer: true, colorManagement: true">
 
     <a-assets>
       <a-asset-item id="houseModel" src="house.glb"></a-asset-item>
@@ -51,9 +93,8 @@
 
     <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
-    <!-- マーカー認識ターゲット (targetIndex: 0) -->
+    <!-- マーカー認識時のエンティティ -->
     <a-entity id="targetEntity" mindar-image-target="targetIndex: 0">
-      <!-- 家の3Dモデル -->
       <a-gltf-model 
         id="houseMesh" 
         src="#houseModel" 
@@ -69,31 +110,24 @@
     const statusEl = document.getElementById('status');
     const sceneEl = document.querySelector('a-scene');
     const houseMesh = document.querySelector('#houseMesh');
+    const shutterBtn = document.getElementById('shutter-btn');
 
-    // 1. MindARの起動イベント判定
+    // 1. MindARカメラ起動完了
     sceneEl.addEventListener("arReady", () => {
-      statusEl.textContent = "カメラ起動成功！マーカーをかざしてください";
-      statusEl.className = "success";
+      statusEl.textContent = "READY - マーカーをかざしてください";
     });
 
-    sceneEl.addEventListener("arError", () => {
-      statusEl.textContent = "エラー: targets.mind の読み込み失敗";
-      statusEl.className = "error";
-    });
-
-    // 2. マーカー認識・離脱イベント
+    // 2. マーカー認識状態
     const targetEntity = document.querySelector('#targetEntity');
     targetEntity.addEventListener('targetFound', () => {
-      statusEl.textContent = '認識成功！(1本指:全方向回転 / 2本指:拡大縮小)';
-      statusEl.className = 'success';
+      statusEl.textContent = '認識中 (撮影可能)';
     });
 
     targetEntity.addEventListener('targetLost', () => {
       statusEl.textContent = 'マーカーを検索中...';
-      statusEl.className = '';
     });
 
-    // 3. 安全なタッチ操作（縦横全方向スワイプ ＆ ピンチ拡大縮小）
+    // 3. タッチ操作（1本指全方向回転 ＆ 2本指ピンチ拡大縮小）
     let startX = null;
     let startY = null;
     let currentRotX = 0;
@@ -121,19 +155,14 @@
       if (!houseMesh) return;
 
       if (e.touches.length === 1 && startX !== null && startY !== null) {
-        // 1本指スワイプ：上下移動でX軸(縦)回転、左右移動でY軸(横)回転
         const deltaX = e.touches[0].clientX - startX;
         const deltaY = e.touches[0].clientY - startY;
-
         currentRotY += deltaX * 0.5;
         currentRotX += deltaY * 0.5;
-
         houseMesh.setAttribute('rotation', `${currentRotX} ${currentRotY} 0`);
-
         startX = e.touches[0].clientX;
         startY = e.touches[0].clientY;
       } else if (e.touches.length === 2 && initialDistance !== null && initialDistance > 0) {
-        // 2本指ピンチ：拡大縮小
         const currentDistance = Math.hypot(
           e.touches[0].clientX - e.touches[1].clientX,
           e.touches[0].clientY - e.touches[1].clientY
@@ -148,6 +177,41 @@
       startX = null;
       startY = null;
       initialDistance = null;
+    });
+
+    // 4. シャッター撮影機能（カメラ背景映像 ＋ 3Dモデルを合成してPNG保存）
+    shutterBtn.addEventListener('click', () => {
+      const videoEl = document.querySelector('video'); // MindARの背景カメラ映像
+      const arCanvas = sceneEl.renderer.domElement;   // 3Dモデルが描画されているWebGLキャンバス
+
+      const saveCanvas = document.createElement('canvas');
+      saveCanvas.width = arCanvas.width;
+      saveCanvas.height = arCanvas.height;
+      const saveCtx = saveCanvas.getContext('2d');
+
+      // ① 背景のカメラ映像を描画
+      if (videoEl && videoEl.readyState === videoEl.HAVE_ENOUGH_DATA) {
+        const vRatio = videoEl.videoWidth / videoEl.videoHeight;
+        const cRatio = saveCanvas.width / saveCanvas.height;
+        let w = saveCanvas.width, h = saveCanvas.height, x = 0, y = 0;
+        if (vRatio > cRatio) {
+          w = saveCanvas.height * vRatio;
+          x = (saveCanvas.width - w) / 2;
+        } else {
+          h = saveCanvas.width / vRatio;
+          y = (saveCanvas.height - h) / 2;
+        }
+        saveCtx.drawImage(videoEl, x, y, w, h);
+      }
+
+      // ② その上から3Dモデルの描画内容を合成
+      saveCtx.drawImage(arCanvas, 0, 0);
+
+      // ③ スマホのアルバムやPCにPNG画像として保存
+      const link = document.createElement('a');
+      link.download = 'ar_snapshot_' + Date.now() + '.png';
+      link.href = saveCanvas.toDataURL('image/png', 1.0);
+      link.click();
     });
   </script>
 </body>
