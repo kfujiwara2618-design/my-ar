@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>MindAR 3D Model AR Camera & Snapshot</title>
+  <title>MindAR 永久表示 & 撮影カメラ</title>
   <style>
     body {
       margin: 0;
@@ -72,7 +72,7 @@
   <!-- ステータス・ガイド表示 -->
   <div id="info-overlay">
     <div>AR CAMERA: <span id="status">CONNECTING...</span></div>
-    <div style="margin-top: 2px; font-size: 8.5px; color: rgba(255,255,255,0.6);">1本指で回転 / 2本指でピンチ拡大縮小 / ボタンで撮影</div>
+    <div style="margin-top: 2px; font-size: 8.5px; color: rgba(255,255,255,0.6);">一度読むと常時表示 / 1本指回転 / 2本指ピンチ拡大 / 撮影</div>
   </div>
 
   <!-- シャッターボタン -->
@@ -80,7 +80,7 @@
     <button id="shutter-btn" title="Capture"></button>
   </div>
 
-  <!-- MindAR シーン (preserveDrawingBuffer: true で撮影を有効化) -->
+  <!-- MindAR シーン -->
   <a-scene 
     mindar-image="imageTargetSrc: ./targets.mind;" 
     vr-mode-ui="enabled: false" 
@@ -91,9 +91,12 @@
       <a-asset-item id="houseModel" src="house.glb"></a-asset-item>
     </a-assets>
 
-    <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+    <!-- カメラ（ここにモデルが常時固定されます） -->
+    <a-camera id="mainCamera" position="0 0 0" look-controls="enabled: false">
+      <!-- 最初のマーカー認識時に、ここに家モデルが移動して永続表示されます -->
+    </a-camera>
 
-    <!-- マーカー認識時のエンティティ -->
+    <!-- マーカー認識のトリガー用エンティティ -->
     <a-entity id="targetEntity" mindar-image-target="targetIndex: 0">
       <a-gltf-model 
         id="houseMesh" 
@@ -110,21 +113,28 @@
     const statusEl = document.getElementById('status');
     const sceneEl = document.querySelector('a-scene');
     const houseMesh = document.querySelector('#houseMesh');
+    const cameraEl = document.querySelector('#mainCamera');
+    const targetEntity = document.querySelector('#targetEntity');
     const shutterBtn = document.getElementById('shutter-btn');
+
+    let isPersistent = false; // 一度読んだかどうかのフラグ
 
     // 1. MindARカメラ起動完了
     sceneEl.addEventListener("arReady", () => {
       statusEl.textContent = "READY - マーカーをかざしてください";
     });
 
-    // 2. マーカー認識状態
-    const targetEntity = document.querySelector('#targetEntity');
+    // 2. マーカーを「1度でも」認識した瞬間の処理
     targetEntity.addEventListener('targetFound', () => {
-      statusEl.textContent = '認識中 (撮影可能)';
-    });
+      if (!isPersistent) {
+        isPersistent = true;
+        statusEl.textContent = '常時表示中 (マーカー不要)';
 
-    targetEntity.addEventListener('targetLost', () => {
-      statusEl.textContent = 'マーカーを検索中...';
+        // 3Dモデルをターゲット（マーカー）からカメラの子要素に移動させ、画面中央に固定
+        cameraEl.appendChild(houseMesh);
+        houseMesh.setAttribute('position', '0 -0.2 -1.5'); // カメラの真正面に配置
+        houseMesh.setAttribute('rotation', '0 0 0');
+      }
     });
 
     // 3. タッチ操作（1本指全方向回転 ＆ 2本指ピンチ拡大縮小）
@@ -179,17 +189,16 @@
       initialDistance = null;
     });
 
-    // 4. シャッター撮影機能（カメラ背景映像 ＋ 3Dモデルを合成してPNG保存）
+    // 4. シャッター撮影機能
     shutterBtn.addEventListener('click', () => {
-      const videoEl = document.querySelector('video'); // MindARの背景カメラ映像
-      const arCanvas = sceneEl.renderer.domElement;   // 3Dモデルが描画されているWebGLキャンバス
+      const videoEl = document.querySelector('video');
+      const arCanvas = sceneEl.renderer.domElement;
 
       const saveCanvas = document.createElement('canvas');
       saveCanvas.width = arCanvas.width;
       saveCanvas.height = arCanvas.height;
       const saveCtx = saveCanvas.getContext('2d');
 
-      // ① 背景のカメラ映像を描画
       if (videoEl && videoEl.readyState === videoEl.HAVE_ENOUGH_DATA) {
         const vRatio = videoEl.videoWidth / videoEl.videoHeight;
         const cRatio = saveCanvas.width / saveCanvas.height;
@@ -204,10 +213,8 @@
         saveCtx.drawImage(videoEl, x, y, w, h);
       }
 
-      // ② その上から3Dモデルの描画内容を合成
       saveCtx.drawImage(arCanvas, 0, 0);
 
-      // ③ スマホのアルバムやPCにPNG画像として保存
       const link = document.createElement('a');
       link.download = 'ar_snapshot_' + Date.now() + '.png';
       link.href = saveCanvas.toDataURL('image/png', 1.0);
